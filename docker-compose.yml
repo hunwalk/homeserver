@@ -1,0 +1,112 @@
+services:
+
+  # Traefik is for reverse proxying the services
+  # If you're already using a reverse proxy, you can remove this service
+  traefik:
+    image: "traefik:v2.11"
+    container_name: "${HOMESERVER_NAME}_traefik"
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.network=proxy_network"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`traefik.box`)"
+      - "traefik.http.routers.api.service=api@internal"
+      - "traefik.http.routers.api.entrypoints=web"
+    ports:
+      - "80:80"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    restart: unless-stopped
+    networks:
+      - proxynet
+
+  # Homer is a dashboard for services
+  homer:
+    image: b4bz/homer
+    container_name: ${HOMESERVER_NAME}_homer
+    volumes:
+      - ./homer/assets:/www/assets
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.homer.rule=Host(`home.box`)"
+      - "traefik.http.routers.homer.entrypoints=web"
+      - "traefik.http.services.homer.loadbalancer.server.port=8080"
+    user: "${HOMESERVER_UID}:${HOMESERVER_GID}"
+    environment:
+      - INIT_ASSETS=1
+    restart: unless-stopped
+    networks:
+      - proxynet
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: ${HOMESERVER_NAME}_sonarr
+    environment:
+      - PUID=${HOMESERVER_UID}
+      - PGID=${HOMESERVER_GID}
+      - TZ=${HOMESERVER_TIMEZONE}
+    volumes:
+      - ./sonarr/config:/config
+      - ${HOMESERVER_MEDIA_TV_PATH}:/tv
+      - ${HOMESERVER_MEDIA_DOWNLOADS_PATH}:/downloads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sonarr.rule=Host(`sonarr.box`)"
+      - "traefik.http.routers.sonarr.entrypoints=web"
+      - "traefik.http.services.sonarr.loadbalancer.server.port=8989"
+    restart: unless-stopped
+    networks:
+      - proxynet
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: ${HOMESERVER_NAME}_qbittorrent
+    environment:
+      - PUID=${HOMESERVER_UID}
+      - PGID=${HOMESERVER_GID}
+      - TZ=${HOMESERVER_TIMEZONE}
+      - WEBUI_PORT=8080
+      - TORRENTING_PORT=6881
+    volumes:
+      - ./qbittorrent/config:/config
+      - ${HOMESERVER_MEDIA_DOWNLOADS_PATH}:/downloads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.qbittorrent.rule=Host(`torrent.box`)"
+      - "traefik.http.routers.qbittorrent.entrypoints=web"
+      - "traefik.http.services.qbittorrent.loadbalancer.server.port=8080"
+    ports:
+      - 6881:6881
+      - 6881:6881/udp
+    restart: unless-stopped
+    networks:
+      - proxynet
+
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    container_name: ${HOMESERVER_NAME}_jackett
+    environment:
+      - PUID=${HOMESERVER_UID}
+      - PGID=${HOMESERVER_GID}
+      - TZ=${HOMESERVER_TIMEZONE}
+      - AUTO_UPDATE=true #optional
+      - RUN_OPTS= #optional
+    volumes:
+      - ./jackett/config:/config
+      - ${HOMESERVER_MEDIA_DOWNLOADS_PATH}:/downloads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jackett.rule=Host(`jackett.box`)"
+      - "traefik.http.routers.jackett.entrypoints=web"
+      - "traefik.http.services.jackett.loadbalancer.server.port=9117"
+    networks:
+      - proxynet
+    restart: unless-stopped
+
+networks:
+  proxynet:
+    name: proxy_network
